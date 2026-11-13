@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ダンテの不思議なダンジョン - 路地裏プロトタイプ</title>
+<style>
+  :root {
+    --bg: #121014;
+    --panel: #1d1921;
+    --border: #3d3345;
+    --text: #e6dfd5;
+    --accent: #c93b3b;
+    --gold: #d4af37;
+    --sanity: #5ba4cf;
+    --muted: #8a7f91;
+  }
+  * { box-sizing: border-box; user-select: none; }
+  body {
+    margin: 0; padding: 16px;
+    background: var(--bg); color: var(--text);
+    font-family: "Consolas", "MS Gothic", monospace;
+    display: flex; justify-content: center;
+  }
+  .container { width: 100%; max-width: 1080px; }
+  h1 { margin: 0 0 12px; font-size: 20px; color: var(--gold); letter-spacing: 1px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 4px; padding: 12px; margin-bottom: 12px;
+  }
+  button {
+    background: #2b2430; color: var(--text); border: 1px solid var(--border);
+    padding: 6px 12px; cursor: pointer; font-family: inherit; border-radius: 3px;
+  }
+  button:hover:not(:disabled) { background: #3f3447; border-color: var(--gold); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: #591c1c; border-color: var(--accent); }
+  .btn-primary:hover:not(:disabled) { background: #7a2626; }
+
+  /* メインメニュー */
+  #menu-screen { max-width: 720px; margin: 20px auto; }
+  .skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-top: 12px; }
+  .skill-card {
+    background: #17131a; border: 1px solid var(--border); padding: 10px;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .skill-name { color: var(--gold); font-weight: bold; font-size: 14px; }
+  .skill-desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* ゲーム画面 */
+  #game-screen { display: none; }
+  .game-layout { display: grid; grid-template-columns: 1fr 310px; gap: 12px; }
+  #map-view {
+    background: #0b090d; border: 1px solid var(--border); padding: 10px;
+    font-size: 17px; line-height: 1.25; letter-spacing: 3px;
+    white-space: pre; overflow-x: auto; text-align: center;
+  }
+  .stat-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; }
+  .bar-wrap { background: #0e0c10; height: 8px; border: 1px solid var(--border); margin-bottom: 8px; }
+  .bar-fill { height: 100%; transition: width 0.15s; }
+  .inv-list { max-height: 220px; overflow-y: auto; font-size: 12px; }
+  .inv-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 6px; border-bottom: 1px solid #29222e;
+  }
+  .inv-item:hover { background: #26202b; }
+  #log-view {
+    height: 140px; overflow-y: auto; background: #0e0c10;
+    border: 1px solid var(--border); padding: 8px; font-size: 13px; line-height: 1.45;
+  }
+  .log-danger { color: #ff6b6b; }
+  .log-gold { color: var(--gold); }
+  .log-info { color: #7ec8e3; }
+  .log-muted { color: var(--muted); }
+  .controls-help { font-size: 12px; color: var(--muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>★ ダンテの不思議なダンジョン <span style="font-size:12px;color:#8a7f91;">- 路地裏(12F) Prototype</span></h1>
+
+  <!-- メインメニュー -->
+  <div id="menu-screen" class="panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div>
+        <div>所持している黄金の枝: <strong id="branch-count" style="color:var(--gold); font-size:18px;">0</strong> 本</div>
+        <div style="font-size:12px; color:var(--muted);">路地裏（全12F）を踏破すると黄金の枝を1本獲得できます。</div>
+      </div>
+      <button class="btn-primary" onclick="startDungeon()" style="padding:10px 20px; font-size:15px;">路地裏へ潜る</button>
+    </div>
+
+    <div style="border-top:1px solid var(--border); padding-top:10px;">
+      <strong>◎ 黄金の枝 スキルツリー</strong>
+      <div class="skill-grid" id="skill-list"></div>
+    </div>
+  </div>
+
+  <!-- ゲーム画面 -->
+  <div id="game-screen">
+    <div class="game-layout">
+      <div>
+        <div id="map-view"></div>
+        <div class="panel" style="margin-top:10px; margin-bottom:0;">
+          <div id="log-view"></div>
+          <div class="controls-help">
+            操作: [矢印キー / WASD] 移動・攻撃 | [Space / .] 足踏み | [Enter / &gt;] 階段を降りる | [F] 遠距離射撃
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel">
+          <div class="stat-row">
+            <strong id="ui-floor" style="color:var(--gold);">路地裏 1F / 12F</strong>
+            <span id="ui-turn" style="color:var(--muted);">ターン: 0</span>
+          </div>
+          <div class="stat-row"><span>HP</span><span id="ui-hp">25/25</span></div>
+          <div class="bar-wrap"><div id="bar-hp" class="bar-fill" style="background:#c93b3b; width:100%;"></div></div>
+
+          <div class="stat-row"><span>満腹度</span><span id="ui-hunger">100/100</span></div>
+          <div class="bar-wrap"><div id="bar-hunger" class="bar-fill" style="background:#d48c37; width:100%;"></div></div>
+
+          <div class="stat-row"><span>精神力 (攻撃補正)</span><span id="ui-sanity" style="color:var(--sanity);">0 (+0)</span></div>
+          <div class="stat-row"><span>攻撃 / 防御</span><span id="ui-atkdef">2 / 0</span></div>
+          <div class="stat-row"><span>状態</span><span id="ui-status">正常</span></div>
+
+          <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border); font-size:12px;">
+            <div>武器: <span id="eq-weapon">なし</span></div>
+            <div>防具: <span id="eq-armor">なし</span></div>
+            <div>遠距離: <span id="eq-ranged">なし</span></div>
+            <div>アクセ: <span id="eq-acc">なし</span></div>
+          </div>
+
+          <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap;">
+            <button id="btn-pigritia" onclick="usePigritia()" style="flex:1; font-size:12px;">光の苗木: PIGRITIA</button>
+            <button onclick="shootRanged()" style="font-size:12px;">射撃[F]</button>
+            <button onclick="waitTurn()" style="font-size:12px;">待機[.]</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+            <strong style="font-size:13px;">持ち物 (<span id="inv-count">0</span>/16)</strong>
+            <button id="btn-stairs" onclick="tryDescend()" style="font-size:11px; display:none;" class="btn-primary">階段を降りる</button>
+          </div>
+          <div class="inv-list" id="inv-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==========================================
+// 永続データ（黄金の枝）
+// ==========================================
+const save = {
+  branches: 0,
+  skills: {
+    PIGRITIA: 0,  // 0 or 1
+    SUPERBIA: 0,  // 0 or 1
+    MOROSITAS: 0, // unlimited (HP+1)
+    IRA: 0,       // max 3 (ATK+1)
+    LUXURIA: 0,   // max 5 (レア率UP)
+    GULA: 0       // unlimited (満腹上限+5)
+  }
+};
+
+const SKILL_DEFS = [
+  { id: 'PIGRITIA', name: 'PIGRITIA', max: 1, desc: '冒険中1回、光の苗木から同フロアの敵を全員鈍足にする' },
+  { id: 'SUPERBIA', name: 'SUPERBIA', max: 1, desc: '冒険中1回、HP0で全回復復活(生命保険より優先)' },
+  { id: 'MOROSITAS', name: 'MOROSITAS', max: 999, desc: '最大HPを1上げる（何度でも強化可）' },
+  { id: 'IRA', name: 'IRA', max: 3, desc: '基本攻撃力を1上げる（最大3回）' },
+  { id: 'LUXURIA', name: 'LUXURIA', max: 5, desc: 'レアアイテムが出現しやすくなる（最大5回）' },
+  { id: 'GULA', name: 'GULA', max: 999, desc: '満腹度の上限を5上げる（何度でも強化可）' }
+];
+
+// ==========================================
+// マスタデータ（仕様書ベース）
+// ==========================================
+const ENEMY_TYPES = {
+  munch:    { name: 'マンチ', char: 'm', color: '#a89f91', hp: 9,  atk: 3, def: 0, minF: 1, maxF: 6 },
+  love:     { name: '愛の街の住人', char: 'L', color: '#d4749c', hp: 12, atk: 4, def: 1, minF: 1, maxF: 8, erratic: true },
+  gnome:    { name: 'ノーム', char: 'g', color: '#74b87e', hp: 16, atk: 5, def: 1, minF: 4, maxF: 12 },
+  porcubus: { name: 'ポーキュバス', char: 'P', color: '#c474d4', hp: 18, atk: 6, def: 2, minF: 6, maxF: 12, noRanged: true },
+  punish:   { name: '罰鳥', char: 'b', color: '#ffffff', hp: 20, atk: 1, def: 2, minF: 7, maxF: 12, punishBird: true }
+};
+
+const ITEM_POOL = [
+  // 食料
+  { id: 'mod', name: 'エンケファリンモジュール', type: 'food', val: 50, rare: 0 },
+  { id: 'box', name: 'エンケファリンボックス', type: 'food', val: 100, rare: 2 },
+  // 消費
+  { id: 'amp', name: '回復アンプル', type: 'heal', val: 50, rare: 0 },
+  { id: 'xiao', name: 'シャオの本', type: 'sanity', val: 1, rare: 1 },
+  { id: 'oswald', name: 'オズワルドの本', type: 'sanity', val: -1, rare: 0 },
+  { id: 'lulu', name: 'ルルの本', type: 'buffAtk', val: 3, rare: 1 },
+  { id: 'philip', name: 'フィリップの本', type: 'escape', val: 0, rare: 2 },
+  // 武器
+  { id: 'baton', name: '警棒', type: 'weapon', atk: 1, rare: 0 },
+  { id: 'karambit', name: 'カランビットナイフ', type: 'weapon', atk: 2, rare: 1 },
+  { id: 'regret', name: '後悔', type: 'weapon', atk: 3, rare: 3 },
+  // 防具
+  { id: 'suit', name: 'スーツ', type: 'armor', def: 1, rare: 0 },
+  { id: 'coat', name: '灰色のコート', type: 'armor', def: 2, rare: 2 },
+  // 遠距離
+  { id: 'pistol', name: '拳銃', type: 'ranged', atk: 2, rare: 1 },
+  // アクセサリ
+  { id: 'ins', name: '生命保険', type: 'acc', effect: 'revive', rare: 2 }
+];
+
+const TRAP_TYPES = [
+  { id: 'pit', name: '落とし穴' },
+  { id: 'tcorp', name: 'T社強制徴収' },
+  { id: 'gear', name: '歯車' },
+  { id: 'vending', name: '自殺自販機' }
+];
+
+// ==========================================
+// ゲーム状態
+// ==========================================
+const MAP_W = 36;
+const MAP_H = 21;
+let state = null;
+
+function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+function renderMenu() {
+  document.getElementById('branch-count').textContent = save.branches;
+  const list = document.getElementById('skill-list');
+  list.innerHTML = '';
+  SKILL_DEFS.forEach(sk => {
+    const lv = save.skills[sk.id];
+    const isMax = lv >= sk.max;
+    const div = document.createElement('div');
+    div.className = 'skill-card';
+    div.innerHTML = `
+      <div>
+        <div class="skill-name">${sk.name} (Lv.${lv}${sk.max < 100 ? '/' + sk.max : ''})</div>
+        <div class="skill-desc">${sk.desc}</div>
+      </div>
+      <button ${save.branches < 1 || isMax ? 'disabled' : ''} onclick="buySkill('${sk.id}')">
+        ${isMax ? 'MAX' : '強化(枝1)'}
+      </button>
+    `;
+    list.appendChild(div);
+  });
+}
+
+function buySkill(id) {
+  const def = SKILL_DEFS.find(s => s.id === id);
+  if (save.branches >= 1 && save.skills[id] < def.max) {
+    save.branches--;
+    save.skills[id]++;
+    renderMenu();
+  }
+}
+
+// ==========================================
+// ダンジョン開始＆生成
+// ==========================================
+function startDungeon() {
+  document.getElementById('menu-screen').style.display = 'none';
+  document.getElementById('game-screen').style.display = 'block';
+
+  const maxHp = 25 + save.skills.MOROSITAS;
+  const maxHunger = 100 + save.skills.GULA * 5;
+
+  state = {
+    floor: 1,
+    maxFloor: 12,
+    floorTurn: 0,
+    totalTurn: 0,
+    gameOver: false,
+    player: {
+      x: 0, y: 0, dir: { dx: 0, dy: 1 },
+      hp: maxHp, maxHp: maxHp,
+      hunger: maxHunger, maxHunger: maxHunger,
+      baseAtk: 2 + save.skills.IRA,
+      sanity: 0,
+      floorAtkBuff: 0,
+      slowTurns: 0,
+      weapon: null, armor: null, ranged: null, acc: null,
+      inv: [
+        { ...ITEM_POOL.find(i => i.id === 'mod') },
+        { ...ITEM_POOL.find(i => i.id === 'amp') }
+      ],
+      usedPigritia: false,
+      usedSuperbia: false
+    },
+    map: [], // '#' wall, '.' floor, '>' stairs
+    rooms: [],
+    enemies: [],
+    items: [], // {x, y, item}
+    traps: []  // {x, y, type, visible}
+  };
+
+  document.getElementById('log-view').innerHTML = '';
+  addLog('路地裏へ足を踏み入れた。12Fの踏破を目指せ！', 'log-gold');
+  generateFloor();
+  renderGame();
+}
+
+function generateFloor() {
+  state.floorTurn = 0;
+  state.player.floorAtkBuff = 0;
+  state.enemies = [];
+  state.items = [];
+  state.traps = [];
+  state.rooms = [];
+
+  // マップを壁で埋める
+  state.map = Array.from({ length: MAP_H }, () => Array(MAP_W).fill('#'));
+
+  // 3x2の6区画に部屋を生成
+  for (let gy = 0; gy < 2; gy++) {
+    for (let gx = 0; gx < 3; gx++) {
+      const x0 = gx * 12 + 1;
+      const y0 = gy * 10 + 1;
+      const rw = rand(4, 8);
+      const rh = rand(4, 7);
+      const rx = x0 + rand(0, 10 - rw);
+      const ry = y0 + rand(0, 8 - rh);
+      const room = { x: rx, y: ry, w: rw, h: rh, cx: Math.floor(rx + rw / 2), cy: Math.floor(ry + rh / 2) };
+      state.rooms.push(room);
+      for (let y = ry; y < ry + rh; y++) {
+        for (let x = rx; x < rx + rw; x++) {
+          state.map[y][x] = '.';
+        }
+      }
+    }
+  }
+
+  // 部屋同士を通路で接続
+  const connections = [[0,1],[1,2],[3,4],[4,5],[1,4]];
+  if (Math.random() < 0.6) connections.push([0,3]);
+  if (Math.random() < 0.6) connections.push([2,5]);
+  connections.forEach(([a, b]) => carveCorridor(state.rooms[a], state.rooms[b]));
+
+  // プレイヤー配置
+  const startRoom = state.rooms[0];
+  state.player.x = startRoom.cx;
+  state.player.y = startRoom.cy;
+
+  // 階段配置（一番遠い部屋）
+  const endRoom = state.rooms[5];
+  state.map[endRoom.cy][endRoom.cx] = '>';
+
+  // 敵の配置
+  const enemyCount = rand(4, 6) + Math.floor(state.floor / 3);
+  for (let i = 0; i < enemyCount; i++) {
+    const pos = getRandomFloorPos(true);
+    if (!pos) continue;
+    const candidates = Object.values(ENEMY_TYPES).filter(e => state.floor >= e.minF && state.floor <= e.maxF);
+    const tpl = candidates[rand(0, candidates.length - 1)];
+    state.enemies.push({ ...tpl, x: pos.x, y: pos.y, maxHp: tpl.hp, slowTurns: 0 });
+  }
+
+  // アイテムの配置
+  const itemCount = rand(3, 5);
+  for (let i = 0; i < itemCount; i++) {
+    const pos = getRandomFloorPos(false);
+    if (!pos) continue;
+    const maxRare = Math.min(3, 1 + Math.floor(save.skills.LUXURIA / 2) + (Math.random() < 0.25 ? 1 : 0));
+    const candidates = ITEM_POOL.filter(it => it.rare <= maxRare);
+    const tpl = candidates[rand(0, candidates.length - 1)];
+    state.items.push({ x: pos.x, y: pos.y, item: { ...tpl } });
+  }
+
+  // 罠の配置（12Fは落とし穴を除外）
+  const trapCount = rand(2, 4);
+  for (let i = 0; i < trapCount; i++) {
+    const pos = getRandomFloorPos(false);
+    if (!pos || state.map[pos.y][pos.x] === '>') continue;
+    const validTraps = state.floor >= state.maxFloor ? TRAP_TYPES.filter(t => t.id !== 'pit') : TRAP_TYPES;
+    const tpl = validTraps[rand(0, validTraps.length - 1)];
+    state.traps.push({ x: pos.x, y: pos.y, type: tpl, visible: false });
+  }
+}
+
+function carveCorridor(r1, r2) {
+  let x = r1.cx, y = r1.cy;
+  while (x !== r2.cx) {
+    state.map[y][x] = '.';
+    x += x < r2.cx ? 1 : -1;
+  }
+  while (y !== r2.cy) {
+    state.map[y][x] = '.';
+    y += y < r2.cy ? 1 : -1;
+  }
+}
+
+function getRandomFloorPos(avoidStartRoom) {
+  for (let tries = 0; tries < 50; tries++) {
+    const r = state.rooms[rand(avoidStartRoom ? 1 : 0, state.rooms.length - 1)];
+    const x = rand(r.x, r.x + r.w - 1);
+    const y = rand(r.y, r.y + r.h - 1);
+    if (x === state.player.x && y === state.player.y) continue;
+    if (state.enemies.some(e => e.x === x && e.y === y)) continue;
+    return { x, y };
+  }
+  return null;
+}
+
+// ==========================================
+// 戦闘・アクション・ターン処理
+// ==========================================
+function getPlayerAtk() {
+  const p = state.player;
+  const wAtk = p.weapon ? p.weapon.atk : 0;
+  // 精神力が高いほどわずかに強くなる補正
+  const sanityBonus = Math.floor(p.sanity / 2);
+  return Math.max(1, p.baseAtk + wAtk + p.floorAtkBuff + sanityBonus);
+}
+
+function getPlayerDef() {
+  return state.player.armor ? state.player.armor.def : 0;
+}
+
+function moveOrAttack(dx, dy) {
+  if (state.gameOver) return;
+  const p = state.player;
+  p.dir = { dx, dy };
+  const nx = p.x + dx;
+  const ny = p.y + dy;
+
+  if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H || state.map[ny][nx] === '#') return;
+
+  const target = state.enemies.find(e => e.x === nx && e.y === ny);
+  if (target) {
+    // 攻撃処理
+    const dmg = Math.max(1, getPlayerAtk() - target.def);
+    target.hp -= dmg;
+    addLog(`${target.name}に ${dmg} のダメージ！`);
+
+    // 罰鳥の反撃仕様（攻撃されたら999ダメージの反撃）
+    if (target.punishBird && target.hp > 0) {
+      addLog(`罰鳥が怒り狂い、致命的な反撃（999ダメージ）を放った！`, 'log-danger');
+      damagePlayer(999);
+    }
+
+    if (target.hp <= 0) {
+      addLog(`${target.name}を倒した！`, 'log-info');
+      state.enemies = state.enemies.filter(e => e !== target);
+    }
+    endPlayerTurn();
+    return;
+  }
+
+  // 移動
+  p.x = nx;
+  p.y = ny;
+
+  // アイテム拾得
+  const itemIdx = state.items.findIndex(it => it.x === nx && it.y === ny);
+  if (itemIdx !== -1) {
+    if (p.inv.length < 16) {
+      const picked = state.items.splice(itemIdx, 1)[0];
+      p.inv.push(picked.item);
+      addLog(`${picked.item.name} を拾った。`, 'log-info');
+    } else {
+      addLog(`持ち物がいっぱいで ${state.items[itemIdx].item.name} を拾えない。`, 'log-muted');
+    }
+  }
+
+  // 罠チェック
+  const trap = state.traps.find(t => t.x === nx && t.y === ny);
+  if (trap) {
+    trap.visible = true;
+    triggerTrap(trap);
+    if (state.gameOver) { renderGame(); return; }
+  }
+
+  endPlayerTurn();
+}
+
+function triggerTrap(trap) {
+  const p = state.player;
+  addLog(`罠「${trap.type.name}」を踏んでしまった！`, 'log-danger');
+  switch (trap.type.id) {
+    case 'pit':
+      addLog(`落とし穴に落ちて下の階層へ！`, 'log-danger');
+      state.floor++;
+      generateFloor();
+      break;
+    case 'tcorp':
+      p.slowTurns = 6;
+      addLog(`T社の徴収を受け、鈍足状態になった！`, 'log-danger');
+      break;
+    case 'gear':
+      const dmg = Math.max(1, Math.floor(p.maxHp * 0.3));
+      addLog(`歯車に巻き込まれ ${dmg} のダメージ！`, 'log-danger');
+      damagePlayer(dmg);
+      break;
+    case 'vending':
+      p.sanity--;
+      addLog(`自殺自販機を見て精神力が1下がった...`, 'log-danger');
+      break;
+  }
+}
+
+function shootRanged() {
+  if (state.gameOver) return;
+  const p = state.player;
+  if (!p.ranged) {
+    addLog('遠距離武器を装備していない！', 'log-muted');
+    return;
+  }
+  const { dx, dy } = p.dir;
+  let cx = p.x + dx, cy = p.y + dy;
+  let hit = null;
+  while (cx >= 0 && cx < MAP_W && cy >= 0 && cy < MAP_H && state.map[cy][cx] !== '#') {
+    const enemy = state.enemies.find(e => e.x === cx && e.y === cy);
+    if (enemy) { hit = enemy; break; }
+    cx += dx; cy += dy;
+  }
+
+  if (hit) {
+    if (hit.noRanged) {
+      addLog(`${hit.name}には遠距離攻撃が効かない！`, 'log-muted');
+    } else {
+      const dmg = Math.max(1, p.ranged.atk + Math.floor(p.sanity / 2) - hit.def);
+      hit.hp -= dmg;
+      addLog(`${p.ranged.name}で${hit.name}に ${dmg} のダメージ！`);
+      if (hit.punishBird && hit.hp > 0) {
+        addLog(`罰鳥が致命的な反撃（999ダメージ）を放った！`, 'log-danger');
+        damagePlayer(999);
+      }
+      if (hit.hp <= 0) {
+        addLog(`${hit.name}を倒した！`, 'log-info');
+        state.enemies = state.enemies.filter(e => e !== hit);
+      }
+    }
+  } else {
+    addLog(`${p.ranged.name}を撃ったが、何にも当たらなかった。`, 'log-muted');
+  }
+  endPlayerTurn();
+}
+
+function waitTurn() {
+  if (!state.gameOver) endPlayerTurn();
+}
+
+function tryDescend() {
+  if (state.gameOver) return;
+  const p = state.player;
+  if (state.map[p.y][p.x] !== '>') return;
+
+  if (state.floor >= state.maxFloor) {
+    // 踏破クリア
+    state.gameOver = true;
+    save.branches++;
+    addLog(`★ 路地裏(12F)を踏破した！黄金の枝を1本獲得！`, 'log-gold');
+    alert(`おめでとうございます！路地裏を踏破し、「黄金の枝」を1本獲得しました！`);
+    exitToMenu();
+  } else {
+    state.floor++;
+    addLog(`${state.floor}F へ降りた。`, 'log-gold');
+    generateFloor();
+    renderGame();
+  }
+}
+
+function useItem(idx) {
+  if (state.gameOver) return;
+  const p = state.player;
+  const item = p.inv[idx];
+  let consumed = true;
+
+  switch (item.type) {
+    case 'food':
+      p.hunger = Math.min(p.maxHunger, p.hunger + item.val);
+      addLog(`${item.name}を食べ、満腹度が${item.val}回復した。`, 'log-info');
+      break;
+    case 'heal':
+      p.hp = Math.min(p.maxHp, p.hp + item.val);
+      addLog(`${item.name}を使用し、HPが${item.val}回復した。`, 'log-info');
+      break;
+    case 'sanity':
+      p.sanity += item.val;
+      addLog(`${item.name}を読み、精神力が ${item.val > 0 ? '+' : ''}${item.val} 変化した。`, 'log-info');
+      break;
+    case 'buffAtk':
+      p.floorAtkBuff += item.val;
+      addLog(`${item.name}を読み、このフロアで攻撃力が上がった！`, 'log-gold');
+      break;
+    case 'escape':
+      state.gameOver = true;
+      alert('フィリップの本を使い、ダンジョンから無事脱出した！');
+      exitToMenu();
+      return;
+    case 'weapon':
+      if (p.weapon) p.inv.push(p.weapon);
+      p.weapon = item;
+      addLog(`${item.name}を装備した。`, 'log-info');
+      break;
+    case 'armor':
+      if (p.armor) p.inv.push(p.armor);
+      p.armor = item;
+      addLog(`${item.name}を装備した。`, 'log-info');
+      break;
+    case 'ranged':
+      if (p.ranged) p.inv.push(p.ranged);
+      p.ranged = item;
+      addLog(`${item.name}を装備した。`, 'log-info');
+      break;
+    case 'acc':
+      if (p.acc) p.inv.push(p.acc);
+      p.acc = item;
+      addLog(`${item.name}を装備した。`, 'log-info');
+      break;
+  }
+  if (consumed) p.inv.splice(idx, 1);
+  endPlayerTurn();
+}
+
+function usePigritia() {
+  const p = state.player;
+  if (state.gameOver || !save.skills.PIGRITIA || p.usedPigritia) return;
+  p.usedPigritia = true;
+  state.enemies.forEach(e => e.slowTurns += 10);
+  addLog(`光の苗木【PIGRITIA】発動！フロアの全ての敵を鈍足にした！`, 'log-gold');
+  renderGame();
+}
+
+function endPlayerTurn() {
+  if (state.gameOver) return;
+  const p = state.player;
+  state.floorTurn++;
+  state.totalTurn++;
+
+  // 満腹度と自然回復
+  if (state.totalTurn % 2 === 0 && p.hunger > 0) p.hunger--;
+  if (p.hunger === 0) {
+    addLog('空腹で体力が削られていく…', 'log-danger');
+    damagePlayer(1);
+    if (state.gameOver) { renderGame(); return; }
+  } else if (state.totalTurn % 5 === 0 && p.hp < p.maxHp) {
+    p.hp++;
+  }
+
+  // 路地裏の夜（ターン制限）
+  if (state.floorTurn === 180) {
+    addLog('遠くで不気味な鐘が鳴った… 路地裏の夜が近づいている！', 'log-danger');
+  } else if (state.floorTurn >= 220) {
+    addLog('「路地裏の夜」が訪れた。掃除屋に飲み込まれ、即死した…', 'log-danger');
+    p.hp = 0;
+    state.gameOver = true;
+    renderGame();
+    setTimeout(() => { alert('路地裏の夜により即死しました。ゲームオーバー'); exitToMenu(); }, 100);
+    return;
+  }
+
+  // プレイヤー鈍足時は敵が2回動くイメージ（簡易実装）
+  const enemySteps = p.slowTurns > 0 ? 2 : 1;
+  if (p.slowTurns > 0) p.slowTurns--;
+
+  for (let s = 0; s < enemySteps; s++) {
+    processEnemies();
+    if (state.gameOver) break;
+  }
+  renderGame();
+}
+
+function processEnemies() {
+  const p = state.player;
+  for (const e of state.enemies) {
+    if (e.slowTurns > 0) {
+      e.slowTurns--;
+      if (e.slowTurns % 2 === 1) continue; // 鈍足中は2ターンに1回行動
+    }
+
+    const dist = Math.abs(e.x - p.x) + Math.abs(e.y - p.y);
+    if (dist === 1) {
+      // 隣接攻撃
+      const dmg = e.punishBird ? 1 : Math.max(1, e.atk - getPlayerDef());
+      addLog(`${e.name}の攻撃！ ${dmg} のダメージを受けた。`, 'log-danger');
+      damagePlayer(dmg);
+      if (state.gameOver) return;
+    } else if (dist <= 9) {
+      // 追跡（愛の街の住人は確率でふらつく）
+      let dx = 0, dy = 0;
+      if (e.erratic && Math.random() < 0.45) {
+        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        [dx, dy] = dirs[rand(0, 3)];
+      } else {
+        if (Math.abs(p.x - e.x) >= Math.abs(p.y - e.y)) {
+          dx = p.x > e.x ? 1 : -1;
+        } else {
+          dy = p.y > e.y ? 1 : -1;
+        }
+      }
+      tryMoveEnemy(e, dx, dy);
+    }
+  }
+}
+
+function tryMoveEnemy(e, dx, dy) {
+  const nx = e.x + dx, ny = e.y + dy;
+  if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) return;
+  if (state.map[ny][nx] === '#') return;
+  if (nx === state.player.x && ny === state.player.y) return;
+  if (state.enemies.some(other => other !== e && other.x === nx && other.y === ny)) return;
+  e.x = nx; e.y = ny;
+}
+
+function damagePlayer(amount) {
+  const p = state.player;
+  p.hp -= amount;
+  if (p.hp <= 0) {
+    // SUPERBIA優先
+    if (save.skills.SUPERBIA && !p.usedSuperbia) {
+      p.usedSuperbia = true;
+      p.hp = p.maxHp;
+      addLog(`【SUPERBIA】が発動！HPが全回復して復活した！`, 'log-gold');
+      return;
+    }
+    // 生命保険チェック
+    if (p.acc && p.acc.effect === 'revive') {
+      p.acc = null;
+      p.hp = p.maxHp;
+      addLog(`「生命保険」が砕け散り、HPが全回復して復活した！`, 'log-gold');
+      return;
+    }
+    p.hp = 0;
+    state.gameOver = true;
+    addLog('ダンテは力尽きた…', 'log-danger');
+    setTimeout(() => { alert(`路地裏 ${state.floor}F で倒れました。`); exitToMenu(); }, 100);
+  }
+}
+
+function exitToMenu() {
+  document.getElementById('game-screen').style.display = 'none';
+  document.getElementById('menu-screen').style.display = 'block';
+  renderMenu();
+}
+
+// ==========================================
+// 描画・UI更新
+// ==========================================
+function addLog(msg, cls = '') {
+  const view = document.getElementById('log-view');
+  const div = document.createElement('div');
+  if (cls) div.className = cls;
+  div.textContent = `> ${msg}`;
+  view.appendChild(div);
+  view.scrollTop = view.scrollHeight;
+}
+
+function renderGame() {
+  const p = state.player;
+  // マップ描画
+  let html = '';
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      if (x === p.x && y === p.y) {
+        html += `<span style="color:#ffd166;font-weight:bold;">@</span>`;
+        continue;
+      }
+      const enemy = state.enemies.find(e => e.x === x && e.y === y);
+      if (enemy) {
+        html += `<span style="color:${enemy.color};font-weight:bold;">${enemy.char}</span>`;
+        continue;
+      }
+      const item = state.items.find(it => it.x === x && it.y === y);
+      if (item) {
+        html += `<span style="color:#4ecdc4;">!</span>`;
+        continue;
+      }
+      const trap = state.traps.find(t => t.x === x && t.y === y && t.visible);
+      if (trap) {
+        html += `<span style="color:#ff6b6b;">^</span>`;
+        continue;
+      }
+      const tile = state.map[y][x];
+      if (tile === '>') html += `<span style="color:#d4af37;font-weight:bold;">&gt;</span>`;
+      else if (tile === '#') html += `<span style="color:#3e3545;">#</span>`;
+      else html += `<span style="color:#5c5263;">.</span>`;
+    }
+    html += '\n';
+  }
+  document.getElementById('map-view').innerHTML = html;
+
+  // ステータス更新
+  document.getElementById('ui-floor').textContent = `路地裏 ${state.floor}F / ${state.maxFloor}F`;
+  document.getElementById('ui-turn').textContent = `階滞在: ${state.floorTurn}/220`;
+  document.getElementById('ui-hp').textContent = `${p.hp}/${p.maxHp}`;
+  document.getElementById('bar-hp').style.width = `${(p.hp / p.maxHp) * 100}%`;
+  document.getElementById('ui-hunger').textContent = `${p.hunger}/${p.maxHunger}`;
+  document.getElementById('bar-hunger').style.width = `${(p.hunger / p.maxHunger) * 100}%`;
+
+  const sBonus = Math.floor(p.sanity / 2);
+  document.getElementById('ui-sanity').textContent = `${p.sanity} (${sBonus >= 0 ? '+' : ''}${sBonus})`;
+  document.getElementById('ui-atkdef').textContent = `${getPlayerAtk()} / ${getPlayerDef()}`;
+  document.getElementById('ui-status').textContent = p.slowTurns > 0 ? `鈍足(${p.slowTurns})` : '正常';
+
+  document.getElementById('eq-weapon').textContent = p.weapon ? `${p.weapon.name}(攻${p.weapon.atk})` : 'なし';
+  document.getElementById('eq-armor').textContent = p.armor ? `${p.armor.name}(防${p.armor.def})` : 'なし';
+  document.getElementById('eq-ranged').textContent = p.ranged ? `${p.ranged.name}(攻${p.ranged.atk})` : 'なし';
+  document.getElementById('eq-acc').textContent = p.acc ? p.acc.name : 'なし';
+
+  const pigBtn = document.getElementById('btn-pigritia');
+  pigBtn.disabled = !save.skills.PIGRITIA || p.usedPigritia;
+  pigBtn.textContent = !save.skills.PIGRITIA ? 'PIGRITIA(未習得)' : (p.usedPigritia ? 'PIGRITIA(使用済)' : '光の苗木: PIGRITIA');
+
+  document.getElementById('btn-stairs').style.display = state.map[p.y][p.x] === '>' ? 'inline-block' : 'none';
+
+  // インベントリ描画
+  document.getElementById('inv-count').textContent = p.inv.length;
+  const invEl = document.getElementById('inv-list');
+  invEl.innerHTML = '';
+  p.inv.forEach((it, idx) => {
+    const row = document.createElement('div');
+    row.className = 'inv-item';
+    const actLabel = ['weapon','armor','ranged','acc'].includes(it.type) ? '装備' : '使う';
+    row.innerHTML = `<span>${it.name}</span><button onclick="useItem(${idx})" style="padding:2px 6px;font-size:11px;">${actLabel}</button>`;
+    invEl.appendChild(row);
+  });
+}
+
+// キーボード入力
+window.addEventListener('keydown', (e) => {
+  if (document.getElementById('game-screen').style.display !== 'block' || state?.gameOver) return;
+  const key = e.key.toLowerCase();
+  if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(key)) e.preventDefault();
+
+  if (key === 'arrowup' || key === 'w') moveOrAttack(0, -1);
+  else if (key === 'arrowdown' || key === 's') moveOrAttack(0, 1);
+  else if (key === 'arrowleft' || key === 'a') moveOrAttack(-1, 0);
+  else if (key === 'arrowright' || key === 'd') moveOrAttack(1, 0);
+  else if (key === ' ' || key === '.') waitTurn();
+  else if (key === 'f') shootRanged();
+  else if (key === 'enter' || key === '>') tryDescend();
+});
+
+renderMenu();
+</script>
+</body>
+</html>
